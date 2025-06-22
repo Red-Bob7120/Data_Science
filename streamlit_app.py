@@ -1,151 +1,215 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 
-# Set the title and favicon that appear in the Browser's tab bar.
+# 페이지 설정
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title="연령별 교통사고 가해자 비율 분석",
+    page_icon="🚗",
+    layout="wide"
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# 한글 폰트 설정
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
 
+# 데이터 준비
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_data():
+    data = {
+        '연령대': ['20대', '30대', '40대', '50대', '60대', '65세 이상'],
+        '비율': [0.006338831, 0.005378732, 0.005727822, 0.007673245, 0.007163389, 0.009960251],
+        '퍼센트': [0.63, 0.54, 0.57, 0.77, 0.72, 1.00]
+    }
+    return pd.DataFrame(data)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+df = load_data()
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# 타이틀 및 설명
+st.title("🚗 연령별 교통사고 가해자 비율 분석 대시보드")
+st.markdown("---")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# 개요 섹션
+col1, col2, col3, col4 = st.columns(4)
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+with col1:
+    st.metric(
+        label="최고 위험 연령대",
+        value="65세 이상",
+        delta="1.00%"
     )
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+with col2:
+    st.metric(
+        label="최저 위험 연령대", 
+        value="30대",
+        delta="0.54%"
+    )
 
-    return gdp_df
+with col3:
+    st.metric(
+        label="전체 평균",
+        value=f"{df['퍼센트'].mean():.2f}%"
+    )
 
-gdp_df = get_gdp_data()
+with col4:
+    st.metric(
+        label="위험도 격차",
+        value=f"{df['퍼센트'].max() - df['퍼센트'].min():.2f}%p"
+    )
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+st.markdown("---")
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+# 차트 섹션
+col1, col2 = st.columns(2)
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+with col1:
+    st.subheader("📊 연령대별 사고 가해자 비율")
+    
+    # 막대 차트
+    fig_bar, ax_bar = plt.subplots(figsize=(10, 6))
+    bars = ax_bar.bar(df['연령대'], df['퍼센트'], color='red', alpha=0.7)
+    
+    # 막대 위에 값 표시
+    for i, bar in enumerate(bars):
+        height = bar.get_height()
+        ax_bar.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                   f'{height:.2f}%', ha='center', va='bottom')
+    
+    ax_bar.set_title("연령대별 교통사고 가해자 비율 (%)", fontsize=14, pad=20)
+    ax_bar.set_xlabel("연령대", fontsize=12)
+    ax_bar.set_ylabel("비율 (%)", fontsize=12)
+    ax_bar.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    st.pyplot(fig_bar)
 
-# Add some spacing
-''
-''
+with col2:
+    st.subheader("🥧 연령대별 구성 비율")
+    
+    # 파이 차트
+    fig_pie, ax_pie = plt.subplots(figsize=(8, 8))
+    colors = plt.cm.Reds(np.linspace(0.3, 0.8, len(df)))
+    
+    wedges, texts, autotexts = ax_pie.pie(
+        df['퍼센트'], 
+        labels=df['연령대'],
+        autopct='%1.2f%%',
+        colors=colors,
+        startangle=90
+    )
+    
+    ax_pie.set_title("연령대별 교통사고 가해자 비율 분포", fontsize=14, pad=20)
+    
+    # 텍스트 스타일 개선
+    for autotext in autotexts:
+        autotext.set_color('white')
+        autotext.set_fontweight('bold')
+    
+    st.pyplot(fig_pie)
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
+# 상세 데이터 테이블
+st.markdown("---")
+st.subheader("📋 상세 데이터")
 
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
+# 데이터 테이블 스타일링
+styled_df = df.copy()
+styled_df['비율'] = styled_df['비율'].apply(lambda x: f"{x:.6f}")
+styled_df['퍼센트'] = styled_df['퍼센트'].apply(lambda x: f"{x:.2f}%")
 
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+st.dataframe(
+    styled_df,
+    use_container_width=True,
+    hide_index=True
 )
 
-''
-''
+# 분석 결과 섹션
+st.markdown("---")
+st.subheader("📈 주요 분석 결과")
 
+col1, col2 = st.columns(2)
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+with col1:
+    st.info("""
+    **🔍 핵심 인사이트:**
+    - 65세 이상 연령층이 가장 높은 사고 가해자 비율 (1.00%)
+    - 30대가 가장 낮은 사고 가해자 비율 (0.54%)
+    - 50대 이후 연령층에서 사고 비율이 증가하는 경향
+    """)
 
-st.header(f'GDP in {to_year}', divider='gray')
+with col2:
+    st.warning("""
+    **⚠️ 주의사항:**
+    - 고령층의 교통안전 교육 강화 필요
+    - 연령대별 맞춤형 안전 정책 수립 고려
+    - 지속적인 모니터링과 분석 필요
+    """)
 
-''
+# 필터링 기능
+st.markdown("---")
+st.subheader("🔍 데이터 필터링")
 
-cols = st.columns(4)
+selected_ages = st.multiselect(
+    "분석하고 싶은 연령대를 선택하세요:",
+    df['연령대'].tolist(),
+    default=df['연령대'].tolist()
+)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+if selected_ages:
+    filtered_df = df[df['연령대'].isin(selected_ages)]
+    
+    # 필터링된 데이터 차트
+    fig_filtered, ax_filtered = plt.subplots(figsize=(10, 5))
+    
+    ax_filtered.plot(filtered_df['연령대'], filtered_df['퍼센트'], 
+                    marker='o', linewidth=3, markersize=8, 
+                    color='red', markerfacecolor='darkred')
+    
+    # 포인트에 값 표시
+    for i, (x, y) in enumerate(zip(filtered_df['연령대'], filtered_df['퍼센트'])):
+        ax_filtered.annotate(f'{y:.2f}%', (x, y), 
+                           textcoords="offset points", 
+                           xytext=(0,10), ha='center')
+    
+    ax_filtered.set_title("선택된 연령대별 사고 가해자 비율 추이", fontsize=14, pad=20)
+    ax_filtered.set_xlabel("연령대", fontsize=12)
+    ax_filtered.set_ylabel("비율 (%)", fontsize=12)
+    ax_filtered.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    
+    st.pyplot(fig_filtered)
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+# 사이드바 정보
+st.sidebar.header("📊 대시보드 정보")
+st.sidebar.info("""
+이 대시보드는 연령별 면허 소지자 대비 
+교통사고 가해자 비율을 분석합니다.
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+**데이터 출처:** 업로드된 CSV 파일
+**분석 기준:** 연령대별 사고 가해자 비율
+""")
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+st.sidebar.header("🛠️ 기능")
+st.sidebar.success("""
+✅ 연령대별 비율 시각화
+✅ 상세 데이터 테이블
+✅ 주요 통계 지표
+✅ 필터링 기능
+✅ 분석 결과 요약
+""")
+
+# 푸터
+st.markdown("---")
+st.markdown(
+    """
+    <div style='text-align: center; color: gray;'>
+    🚗 교통안전 분석 대시보드 | 
+    데이터 기반 의사결정을 위한 시각화 도구
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
