@@ -33,7 +33,6 @@ def setup_korean_font():
     except Exception as e:
         plt.rcParams['font.family'] = 'DejaVu Sans'
         plt.rcParams['axes.unicode_minus'] = False
-        
         return False
 
 font_success = setup_korean_font()
@@ -68,18 +67,12 @@ def load_trend_data():
         '증가율': [None, 109.5, 1874.5, 8.4, 45.3]  # 전년대비 증가율 추가
     })
 
-# 사이드바 설정
-st.sidebar.title("📊 분석 옵션")
-analysis_type = st.sidebar.selectbox(
-    "분석 유형 선택",
-    ["전체 개요", "교통사고 분석", "면허 반납 분석", "연도별 추이", "정책 제언"]
-)
-
-# 메인 타이틀
+# 사이드바를 탭(Tabs)으로 변경
 st.title("🚗 고령 운전자 교통사고 및 면허 자진반납 분석 대시보드")
 
-# 전체 개요
-if analysis_type == "전체 개요":
+tab1, tab2, tab3, tab4 = st.tabs(["📋 전체 개요", "📊 교통사고 분석", "📄 면허 반납 분석", "🏛️ 정책 제언"])
+
+with tab1:
     st.header("📋 분석 개요")
     
     col1, col2, col3, col4 = st.columns(4)
@@ -120,8 +113,7 @@ if analysis_type == "전체 개요":
     - **고령화 사회 진입**에 따른 **교통 정책 재편 필요성** 대두
     """)
 
-# 교통사고 분석
-elif analysis_type == "교통사고 분석":
+with tab2:
     st.header("📊 교통사고 가해자 연령대별 분석")
     
     accident_df = load_accident_data()
@@ -210,8 +202,7 @@ elif analysis_type == "교통사고 분석":
         - 상대적으로 안전한 연령대
         """)
 
-# 면허 반납 분석
-elif analysis_type == "면허 반납 분석":
+with tab3:
     st.header("📄 면허 자진반납 현황 분석")
     
     license_df = load_license_surrender_data()
@@ -366,84 +357,7 @@ elif analysis_type == "면허 반납 분석":
         - **정책 방향**: 대체 교통수단 확충 우선
         """)
 
-# 연도별 추이 분석
-elif analysis_type == "연도별 추이":
-    st.header("📈 연도별 면허 자진반납 추이 분석")
-    
-    trend_df = load_trend_data()
-    
-    # 메인 추이 차트
-    fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # 반납 건수 라인
-    fig_trend.add_trace(
-        go.Scatter(
-            x=trend_df['연도'],
-            y=trend_df['반납건수'],
-            mode='lines+markers',
-            name='반납 건수',
-            line=dict(color='#ff6b6b', width=3),
-            marker=dict(size=8)
-        ),
-        secondary_y=False,
-    )
-    
-    # 증가율 바
-    fig_trend.add_trace(
-        go.Bar(
-            x=trend_df['연도'][1:],  # 첫 번째 연도 제외 (증가율 없음)
-            y=trend_df['증가율'][1:],
-            name='증가율',
-            opacity=0.6,
-            marker_color='#4834d4'
-        ),
-        secondary_y=True,
-    )
-    
-    fig_trend.update_xaxes(title_text="연도")
-    fig_trend.update_yaxes(title_text="반납 건수 (건)", secondary_y=False)
-    fig_trend.update_yaxes(title_text="증가율 (%)", secondary_y=True)
-    fig_trend.update_layout(
-        title="면허 자진반납 건수 및 증가율 추이",
-        height=500
-    )
-    
-    st.plotly_chart(fig_trend, use_container_width=True)
-    
-    # 주요 시점 분석
-    st.subheader("🔍 주요 변화 시점 분석")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric(
-            label="2019년 대폭발",
-            value="77,172건",
-            delta="+1,874.5%",
-            delta_color="normal"
-        )
-        st.caption("정책 변화 또는 사회적 인식 변화")
-    
-    with col2:
-        st.metric(
-            label="2021년 안정화",
-            value="83,644건",
-            delta="+8.4%",
-            delta_color="normal"
-        )
-        st.caption("증가세 둔화")
-    
-    with col3:
-        st.metric(
-            label="2023년 재가속",
-            value="121,559건",
-            delta="+45.3%",
-            delta_color="normal"
-        )
-        st.caption("고령화 가속화 영향")
-
-# 정책 제언
-elif analysis_type == "정책 제언":
+with tab4:
     st.header("🏛️ 정책 제언 및 개선 방안")
     
     # 주요 정책 제언
@@ -556,7 +470,19 @@ elif analysis_type == "정책 제언":
 # 푸터
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: gray;'>
+<div style='text-align: center; color: gray; font-size: 0.9em;'>
     <p>📊 고령 운전자 교통안전 분석 대시보드 | 데이터 기반 정책 수립 지원</p>
+    <p>
+    <strong>데이터 출처</strong><br>
+    경찰청 시도 경찰청별 고령운전자 자진반납 현황<br>
+    2023년 운전면허 소지자 현황(대장별)<br>
+    가해자 연령층별 교통사고<br>
+    경찰청 운전면허 자진반납현황<br>
+    교통안전지수
+    </p>
+    <p><strong>참고문헌</strong><br>
+    김동민, 유두한, 김수경, 차태현. (2025). 사회문화적 요인이 고령운전자의 면허 반납에 미치는 영향. <em>대한보조공학기술학회지</em>, 17(1), 43-53.<br>
+    최재훈, 염윤호. (2024). 고령운전자 운전면허 자진반납 정책의 교통사고 감소 효과에 관한 연구. <em>교통연구</em>, 31(3), 105-117.
+    </p>
 </div>
 """, unsafe_allow_html=True)
