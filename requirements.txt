@@ -3,3 +3,4 @@ pandas
 matplotlib>=3.5.0
 seaborn
 numpy
+plotly

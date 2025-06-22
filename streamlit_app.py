@@ -6,25 +6,26 @@ import numpy as np
 import matplotlib.font_manager as fm
 import os
 import urllib.request
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # 페이지 설정
 st.set_page_config(
     page_title="교통사고 및 면허 자진반납 분석",
     page_icon="🚗",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # 한글 폰트 설정 함수
 @st.cache_resource
 def setup_korean_font():
-    """한글 폰트를 설정하는 함수"""
     try:
-        font_url = "https://github.com/naver/nanumfont/raw/master/fonts/NanumGothic.ttf"
+        font_url = "https://raw.githubusercontent.com/naver/nanumfont/master/TTF/NanumGothic.ttf"
         font_path = "NanumGothic.ttf"
-        
         if not os.path.exists(font_path):
             urllib.request.urlretrieve(font_url, font_path)
-        
         fm.fontManager.addfont(font_path)
         plt.rcParams['font.family'] = 'NanumGothic'
         plt.rcParams['axes.unicode_minus'] = False
@@ -32,444 +33,530 @@ def setup_korean_font():
     except Exception as e:
         plt.rcParams['font.family'] = 'DejaVu Sans'
         plt.rcParams['axes.unicode_minus'] = False
-        st.warning(f"한글 폰트 설정 실패: {str(e)}")
+        
         return False
 
-# 폰트 설정 실행
 font_success = setup_korean_font()
 
-# 교통사고 데이터
+# 데이터 로드 함수들
 @st.cache_data
 def load_accident_data():
-    """교통사고 연령별 가해자 비율 데이터"""
     data = {
         '연령대': ['20대', '30대', '40대', '50대', '60대', '65세 이상'],
         '비율': [0.006338831, 0.005378732, 0.005727822, 0.007673245, 0.007163389, 0.009960251],
-        '퍼센트': [0.63, 0.54, 0.57, 0.77, 0.72, 1.00]
+        '퍼센트': [0.63, 0.54, 0.57, 0.77, 0.72, 1.00],
+        '절대값': [63, 54, 57, 77, 72, 100]  # 시각화를 위한 절대값 추가
     }
     return pd.DataFrame(data)
 
-# CSV 파일에서 면허 자진반납 데이터 로드
 @st.cache_data
-def load_license_return_data():
-    """CSV 파일에서 면허 자진반납 데이터 로드"""
-    try:
-        # CSV 파일 읽기 (UTF-8 먼저 시도)
-        df = pd.read_csv('data/경찰청_시도 경찰청별 고령운전자 자진반납 현황.csv', encoding='utf-8')
-    except:
-        try:
-            # 인코딩으로 재시도
-            df = pd.read_csv('data/경찰청_시도 경찰청별 고령운전자 자진반납 현황.csv', encoding='euc-kr')
-        except Exception as e:
-            st.error(f"CSV 파일을 읽을 수 없습니다: {str(e)}")
-            st.stop()
-    
-    # 컬럼명 정리
-    df.columns = df.columns.str.strip()
-    
-    # 2023년 데이터 추출 및 정리
-    license_data = {
-        '지역': df['지방청'].tolist(),
-        '65세_이상': df['2023 65세이상'].tolist(),
-        '전체': df['2023 전체'].tolist()
-    }
-    
-    result_df = pd.DataFrame(license_data)
-    result_df['자진반납률'] = (result_df['65세_이상'] / result_df['전체'] * 100).round(2)
-    
-    return result_df
+def load_license_surrender_data():
+    return pd.DataFrame({
+        '지역': ['서울', '기타 지역'],
+        '반납건수': [26005, 95554],  # 121559 - 26005
+        '총인구': [9720846, 41857582],  # 2023년 기준 (만명)
+        '65세이상인구': [1557013, 7088987],  # 2023년 기준 65세 이상 인구
+        '반납비율_총인구': [0.268, 0.228],  # 총인구 1000명당 반납건수
+        '반납비율_65세이상': [1.67, 1.35]  # 65세 이상 인구 100명당 반납건수
+    })
 
-# 연도별 추이 데이터 (CSV에서 추출)
 @st.cache_data
-def load_yearly_trend_data():
-    """CSV 파일에서 연도별 추이 데이터 생성"""
-    try:
-        # CSV 파일 읽기
-        df = pd.read_csv('data/경찰청_시도 경찰청별 고령운전자 자진반납 현황.csv', encoding='utf-8')
-    except:
-        try:
-            df = pd.read_csv('data/경찰청_시도 경찰청별 고령운전자 자진반납 현황.csv', encoding='cp949')
-        except Exception as e:
-            st.error(f"CSV 파일을 읽을 수 없습니다: {str(e)}")
-            st.stop()
-    
-    # 연도별 전국 합계 계산
-    years = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
-    yearly_data = []
-    
-    for year in years:
-        # 컬럼명 패턴 처리 (2023년은 다른 형식)
-        if year == 2023:
-            elderly_col = f'{year} 65세이상'
-        else:
-            elderly_col = f'{year} 65세 이상'
-        total_col = f'{year} 전체'
-        
-        if elderly_col in df.columns and total_col in df.columns:
-            elderly_sum = df[elderly_col].sum()
-            total_sum = df[total_col].sum()
-            rate = (elderly_sum / total_sum * 100) if total_sum > 0 else 0
-            
-            yearly_data.append({
-                '연도': year,
-                '65세_이상': elderly_sum,
-                '전체': total_sum,
-                '자진반납률': round(rate, 2)
-            })
-    
-    return pd.DataFrame(yearly_data)
+def load_trend_data():
+    return pd.DataFrame({
+        '연도': [2015, 2017, 2019, 2021, 2023],
+        '반납건수': [1866, 3909, 77172, 83644, 121559],
+        '증가율': [None, 109.5, 1874.5, 8.4, 45.3]  # 전년대비 증가율 추가
+    })
 
-# 데이터 로드
-accident_df = load_accident_data()
-license_df = load_license_return_data()
-yearly_df = load_yearly_trend_data()
+# 사이드바 설정
+st.sidebar.title("📊 분석 옵션")
+analysis_type = st.sidebar.selectbox(
+    "분석 유형 선택",
+    ["전체 개요", "교통사고 분석", "면허 반납 분석", "연도별 추이", "정책 제언"]
+)
 
 # 메인 타이틀
-st.title("🚗 교통사고 및 면허 자진반납 종합 분석 대시보드")
-st.markdown("---")
+st.title("🚗 고령 운전자 교통사고 및 면허 자진반납 분석 대시보드")
 
-# 전체 개요 섹션
-st.header("📊 주요 지표 요약")
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        label="📈 교통사고 최고위험 연령대",
-        value="65세 이상",
-        delta="1.00%"
-    )
-
-with col2:
-    st.metric(
-        label="🔄 2023년 전국 자진반납",
-        value=f"{yearly_df['전체'].iloc[-1]:,}건",
-        delta=f"+{yearly_df['전체'].iloc[-1] - yearly_df['전체'].iloc[-2]:,}건"
-    )
-
-with col3:
-    st.metric(
-        label="👥 65세 이상 자진반납률",
-        value=f"{yearly_df['자진반납률'].iloc[-1]:.2f}%",
-        delta=f"{yearly_df['자진반납률'].iloc[-1] - yearly_df['자진반납률'].iloc[-2]:+.2f}%p"
-    )
-
-with col4:
-    st.metric(
-        label="🏆 최고 자진반납 지역",
-        value=license_df.loc[license_df['전체'].idxmax(), '지역'],
-        delta=f"{license_df['전체'].max():,}건"
-    )
-
-# 탭 생성
-tab1, tab2, tab3, tab4 = st.tabs(["📊 교통사고 분석", "🔄 면허 자진반납 현황", "📈 연도별 추이", "🗂️ 데이터 테이블"])
-
-# 탭 1: 교통사고 분석
-with tab1:
-    st.header("🚨 연령별 교통사고 가해자 비율 분석")
+# 전체 개요
+if analysis_type == "전체 개요":
+    st.header("📋 분석 개요")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.subheader("📊 연령대별 사고 가해자 비율")
-        
-        fig_bar, ax_bar = plt.subplots(figsize=(10, 6))
-        colors = ['#ff4757' if x == accident_df['퍼센트'].max() else '#3742fa' for x in accident_df['퍼센트']]
-        bars = ax_bar.bar(accident_df['연령대'], accident_df['퍼센트'], color=colors, alpha=0.8)
-        
-        # 막대 위에 값 표시
-        for i, bar in enumerate(bars):
-            height = bar.get_height()
-            ax_bar.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                       f'{height:.2f}%', ha='center', va='bottom', fontweight='bold')
-        
-        ax_bar.set_title("연령대별 교통사고 가해자 비율", fontsize=14, pad=20)
-        ax_bar.set_xlabel("연령대", fontsize=12)
-        ax_bar.set_ylabel("비율 (%)", fontsize=12)
-        ax_bar.grid(True, alpha=0.3, axis='y')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        st.pyplot(fig_bar)
+        st.metric(
+            label="65세 이상 사고 비율",
+            value="1.00%",
+            delta="최고 위험군"
+        )
     
     with col2:
-        st.subheader("🥧 연령대별 사고 비율 분포")
-        
-        fig_pie, ax_pie = plt.subplots(figsize=(8, 8))
-        colors = plt.cm.Set3(np.linspace(0, 1, len(accident_df)))
-        
-        wedges, texts, autotexts = ax_pie.pie(
-            accident_df['퍼센트'], 
-            labels=accident_df['연령대'],
-            autopct='%1.2f%%',
-            colors=colors,
-            startangle=90,
-            explode=[0.1 if x == accident_df['퍼센트'].max() else 0 for x in accident_df['퍼센트']]
+        st.metric(
+            label="총 면허 반납 건수",
+            value="121,559건",
+            delta="+45.3% (2021 대비)"
         )
-        
-        ax_pie.set_title("연령대별 교통사고 가해자 비율 분포", fontsize=14, pad=20)
-        
-        for autotext in autotexts:
-            autotext.set_color('white')
-            autotext.set_fontweight('bold')
-        
-        st.pyplot(fig_pie)
     
-    # 분석 결과
-    st.info("""
-    **🔍 교통사고 분석 결과:**
-    - **65세 이상**: 1.00% (최고 위험군)
-    - **30대**: 0.54% (최저 위험군)
-    - **50대 이후**: 연령 증가에 따른 사고 비율 상승 경향
-    - **위험도 격차**: 0.46%p (65세 이상 vs 30대)
+    with col3:
+        st.metric(
+            label="서울 반납 비율",
+            value="21.4%",
+            delta="26,005건"
+        )
+    
+    with col4:
+        st.metric(
+            label="60세 이상 사고 비율",
+            value="1.72%",
+            delta="정책 대응 필요"
+        )
+    
+    st.markdown("""
+    ### 🎯 핵심 분석 결과
+    - **고령 운전자(65세 이상)**의 교통사고 가해 비율이 **전 연령대 중 최고**
+    - **면허 자진반납**은 **2019년 이후 급격히 증가**하는 추세
+    - **서울과 지방 간 반납 패턴의 차이** 존재
+    - **고령화 사회 진입**에 따른 **교통 정책 재편 필요성** 대두
     """)
 
-# 탭 2: 면허 자진반납 현황
-with tab2:
-    st.header("🔄 2023년 지역별 면허 자진반납 현황")
+# 교통사고 분석
+elif analysis_type == "교통사고 분석":
+    st.header("📊 교통사고 가해자 연령대별 분석")
+    
+    accident_df = load_accident_data()
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🏙️ 지역별 자진반납 건수 TOP 10")
-        
-        # 상위 10개 지역
-        top_10 = license_df.nlargest(10, '전체')
-        
-        fig_bar, ax_bar = plt.subplots(figsize=(12, 8))
-        
-        x = np.arange(len(top_10))
-        width = 0.35
-        
-        bars1 = ax_bar.bar(x - width/2, top_10['65세_이상'], width, 
-                          label='65세 이상', color='#ff6b6b', alpha=0.8)
-        bars2 = ax_bar.bar(x + width/2, top_10['전체'], width, 
-                          label='전체', color='#4ecdc4', alpha=0.8)
-        
-        ax_bar.set_title("지역별 면허 자진반납 건수 TOP 10", fontsize=14, pad=20)
-        ax_bar.set_xlabel("지역", fontsize=12)
-        ax_bar.set_ylabel("건수", fontsize=12)
-        ax_bar.set_xticks(x)
-        ax_bar.set_xticklabels(top_10['지역'], rotation=45, ha='right')
-        ax_bar.legend()
-        ax_bar.grid(True, alpha=0.3, axis='y')
-        
-        plt.tight_layout()
-        st.pyplot(fig_bar)
+        # 파이 차트 - 연령순으로 정렬
+        colors = ['#3742fa', '#5352ed', '#70a1ff', '#ffa502', '#ff6b6b', '#ff4757']  # 20대부터 65세이상까지 순서대로
+        fig_pie = go.Figure(data=[
+            go.Pie(
+                labels=accident_df['연령대'],
+                values=accident_df['퍼센트'],
+                hole=0.4,
+                pull=[0.15 if x == '65세 이상' else 0.08 if x == '60대' else 0 for x in accident_df['연령대']],
+                marker=dict(colors=colors, line=dict(color='white', width=2)),
+                textinfo='label+percent',
+                textfont=dict(size=12, color='white'),
+                hovertemplate='<b>%{label}</b><br>비율: %{percent}<br>값: %{value}<extra></extra>',
+                sort=False,  # 정렬 비활성화로 데이터 순서 유지
+                direction='clockwise',  # 시계방향 배치
+                rotation=90  # 12시 방향부터 시작
+            )
+        ])
+        fig_pie.update_layout(
+            title=dict(text="연령대별 교통사고 가해자 비율", font=dict(size=16)),
+            showlegend=False,
+            height=400
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
     
     with col2:
-        st.subheader("📊 지역별 자진반납률 순위")
-        
-        # 자진반납률 기준 정렬
-        sorted_rate_df = license_df.sort_values('자진반납률', ascending=True)
-        
-        fig_rate, ax_rate = plt.subplots(figsize=(10, 10))
-        
-        colors = ['#ff9f43' if rate >= 95 else '#70a1ff' for rate in sorted_rate_df['자진반납률']]
-        bars = ax_rate.barh(range(len(sorted_rate_df)), sorted_rate_df['자진반납률'], color=colors, alpha=0.8)
-        
-        # 막대 끝에 값 표시
-        for i, (bar, rate) in enumerate(zip(bars, sorted_rate_df['자진반납률'])):
-            width = bar.get_width()
-            ax_rate.text(width + 0.1, bar.get_y() + bar.get_height()/2,
-                        f'{rate:.2f}%', ha='left', va='center', fontweight='bold')
-        
-        ax_rate.set_title("지역별 면허 자진반납률", fontsize=14, pad=20)
-        ax_rate.set_xlabel("자진반납률 (%)", fontsize=12)
-        ax_rate.set_yticks(range(len(sorted_rate_df)))
-        ax_rate.set_yticklabels(sorted_rate_df['지역'])
-        ax_rate.grid(True, alpha=0.3, axis='x')
-        
-        plt.tight_layout()
-        st.pyplot(fig_rate)
-
-# 탭 3: 연도별 추이
-with tab3:
-    st.header("📈 면허 자진반납 연도별 추이 분석")
+        # 막대 차트
+        fig_bar = px.bar(
+            accident_df, 
+            x='연령대', 
+            y='퍼센트',
+            color='연령대',
+            color_discrete_map={
+                '65세 이상': '#ff4757',
+                '60대': '#ff6b6b',
+                '50대': '#ffa502',
+                '40대': '#70a1ff',
+                '30대': '#5352ed',
+                '20대': '#3742fa'
+            },
+            title="연령대별 사고 가해 비율 (막대 차트)"
+        )
+        fig_bar.update_layout(
+            xaxis_title="연령대",
+            yaxis_title="비율 (%)",
+            showlegend=False,
+            height=400
+        )
+        fig_bar.add_hline(y=accident_df['퍼센트'].mean(), line_dash="dash", 
+                         line_color="red", 
+                         annotation_text=f"평균: {accident_df['퍼센트'].mean():.2f}%")
+        st.plotly_chart(fig_bar, use_container_width=True)
     
-    col1, col2 = st.columns(2)
+    # 상세 분석
+    st.subheader("🔍 상세 분석")
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.subheader("📊 연도별 자진반납 건수 추이")
-        
-        fig_trend, ax_trend = plt.subplots(figsize=(12, 8))
-        
-        ax_trend.plot(yearly_df['연도'], yearly_df['전체'], marker='o', 
-                     linewidth=4, markersize=10, label='전체', color='#4ecdc4')
-        ax_trend.plot(yearly_df['연도'], yearly_df['65세_이상'], marker='s', 
-                     linewidth=4, markersize=10, label='65세 이상', color='#ff6b6b')
-        
-        # 데이터 포인트에 값 표시
-        for i, row in yearly_df.iterrows():
-            if row['연도'] in [2019, 2023]:  # 주요 연도만 표시
-                ax_trend.annotate(f"{row['전체']:,}", 
-                                (row['연도'], row['전체']), 
-                                textcoords="offset points", xytext=(0,10), ha='center')
-        
-        ax_trend.set_title("연도별 면허 자진반납 건수 추이", fontsize=16, pad=20)
-        ax_trend.set_xlabel("연도", fontsize=12)
-        ax_trend.set_ylabel("건수", fontsize=12)
-        ax_trend.legend(fontsize=12)
-        ax_trend.grid(True, alpha=0.3)
-        
-        # y축 포맷팅
-        ax_trend.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
-        
-        plt.tight_layout()
-        st.pyplot(fig_trend)
-    
-    with col2:
-        st.subheader("📊 연도별 자진반납률 변화")
-        
-        fig_rate_trend, ax_rate_trend = plt.subplots(figsize=(12, 8))
-        
-        colors = ['#ff9f43' if year >= 2019 else '#70a1ff' for year in yearly_df['연도']]
-        bars = ax_rate_trend.bar(yearly_df['연도'], yearly_df['자진반납률'], 
-                                color=colors, alpha=0.8)
-        
-        # 막대 위에 값 표시
-        for i, (bar, rate) in enumerate(zip(bars, yearly_df['자진반납률'])):
-            height = bar.get_height()
-            ax_rate_trend.text(bar.get_x() + bar.get_width()/2., height + 0.5,
-                              f'{rate:.1f}%', ha='center', va='bottom', fontweight='bold')
-        
-        ax_rate_trend.set_title("연도별 면허 자진반납률 변화", fontsize=16, pad=20)
-        ax_rate_trend.set_xlabel("연도", fontsize=12)
-        ax_rate_trend.set_ylabel("자진반납률 (%)", fontsize=12)
-        ax_rate_trend.grid(True, alpha=0.3, axis='y')
-        
-        plt.tight_layout()
-        st.pyplot(fig_rate_trend)
-    
-    # 추이 분석 결과
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.success(f"""
-        **📈 주요 증가 구간 (2018→2019):**
-        - 전체: {yearly_df[yearly_df['연도']==2018]['전체'].iloc[0]:,} → {yearly_df[yearly_df['연도']==2019]['전체'].iloc[0]:,}건
-        - 증가율: {((yearly_df[yearly_df['연도']==2019]['전체'].iloc[0] / yearly_df[yearly_df['연도']==2018]['전체'].iloc[0] - 1) * 100):.1f}%
-        """)
-    
-    with col2:
         st.info(f"""
-        **📊 최근 현황 (2023년):**
-        - 전체 자진반납: {yearly_df['전체'].iloc[-1]:,}건
-        - 65세 이상 비율: {yearly_df['자진반납률'].iloc[-1]:.2f}%
-        - 전년 대비: {yearly_df['전체'].iloc[-1] - yearly_df['전체'].iloc[-2]:+,}건
+        **최고 위험군**
+        - 65세 이상: {accident_df[accident_df['연령대']=='65세 이상']['퍼센트'].values[0]}%
+        - 평균 대비 {(accident_df[accident_df['연령대']=='65세 이상']['퍼센트'].values[0] / accident_df['퍼센트'].mean()):.1f}배 높음
+        """)
+    
+    with col2:
+        elderly_total = accident_df[accident_df['연령대'].isin(['60대', '65세 이상'])]['퍼센트'].sum()
+        st.warning(f"""
+        **60세 이상 총합**
+        - 전체 비율: {elderly_total:.2f}%
+        - 고령 운전자 집중 관리 필요
+        """)
+    
+    with col3:
+        min_age = accident_df.loc[accident_df['퍼센트'].idxmin(), '연령대']
+        min_val = accident_df['퍼센트'].min()
+        st.success(f"""
+        **최저 위험군**
+        - {min_age}: {min_val}%
+        - 상대적으로 안전한 연령대
         """)
 
-# 탭 4: 데이터 테이블
-with tab4:
-    st.header("🗂️ 상세 데이터 테이블")
+# 면허 반납 분석
+elif analysis_type == "면허 반납 분석":
+    st.header("📄 면허 자진반납 현황 분석")
     
-    tab4_1, tab4_2, tab4_3 = st.tabs(["교통사고 데이터", "지역별 자진반납", "연도별 추이"])
+    license_df = load_license_surrender_data()
     
-    with tab4_1:
-        st.subheader("📊 교통사고 연령별 가해자 비율")
-        st.dataframe(
-            accident_df.style.format({'비율': '{:.6f}', '퍼센트': '{:.2f}%'}),
-            use_container_width=True
+    # 인구 대비 비율 분석
+    st.subheader("👥 인구 대비 면허 반납 비율 분석")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="서울 반납율 (총인구)",
+            value="0.268‰",
+            delta="총인구 1000명당"
         )
     
-    with tab4_2:
-        st.subheader("🔄 2023년 지역별 면허 자진반납 현황")
-        display_df = license_df.copy()
-        display_df = display_df.sort_values('전체', ascending=False)
+    with col2:
+        st.metric(
+            label="기타지역 반납율 (총인구)", 
+            value="0.228‰",
+            delta="총인구 1000명당"
+        )
+    
+    with col3:
+        st.metric(
+            label="서울 반납율 (65세+)",
+            value="1.67%",
+            delta="65세 이상 100명당"
+        )
+    
+    with col4:
+        st.metric(
+            label="기타지역 반납율 (65세+)",
+            value="1.35%", 
+            delta="65세 이상 100명당"
+        )
+    
+    # 간소화된 시각화: 65세 이상 인구 대비 반납 비율
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # 65세 이상 인구 대비 반납 비율 (메인 차트)
+        fig_main = px.bar(
+            license_df,
+            x='지역',
+            y='반납비율_65세이상',
+            color='지역',
+            color_discrete_map={'서울': '#ff6b6b', '기타 지역': '#4834d4'},
+            title="65세 이상 인구 대비 면허 반납 비율",
+            text='반납비율_65세이상'
+        )
+        fig_main.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
+        fig_main.update_layout(
+            yaxis_title="반납 비율 (%)",
+            showlegend=False,
+            height=400,
+            yaxis_range=[0, max(license_df['반납비율_65세이상']) * 1.2]
+        )
+        # 전국 평균선 추가
+        national_avg = (license_df['반납건수'].sum() / license_df['65세이상인구'].sum()) * 100
+        fig_main.add_hline(
+            y=national_avg, 
+            line_dash="dash", 
+            line_color="red",
+            annotation_text=f"전국 평균: {national_avg:.2f}%"
+        )
+        st.plotly_chart(fig_main, use_container_width=True)
+    
+    with col2:
+        # 반납 건수와 65세 이상 인구 비교 (참고용)
+        comparison_data = pd.DataFrame({
+            '지역': license_df['지역'].tolist() * 2,
+            '구분': ['반납건수'] * 2 + ['65세이상인구'] * 2,
+            '값': license_df['반납건수'].tolist() + license_df['65세이상인구'].tolist(),
+            '단위': ['건'] * 2 + ['명'] * 2
+        })
         
-        st.dataframe(
-            display_df.style.format({
-                '65세_이상': '{:,}',
-                '전체': '{:,}',
-                '자진반납률': '{:.2f}%'
-            }),
-            use_container_width=True
+        fig_ref = px.bar(
+            comparison_data,
+            x='지역',
+            y='값',
+            color='구분',
+            barmode='group',
+            title="반납건수 vs 65세 이상 인구 (참고)",
+            color_discrete_map={'반납건수': '#ff9ff3', '65세이상인구': '#a4b0be'},
+            text='값'
         )
-    
-    with tab4_3:
-        st.subheader("📈 연도별 면허 자진반납 추이")
-        st.dataframe(
-            yearly_df.style.format({
-                '65세_이상': '{:,}',
-                '전체': '{:,}',
-                '자진반납률': '{:.2f}%'
-            }),
-            use_container_width=True
+        fig_ref.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+        fig_ref.update_layout(
+            yaxis_title="수량",
+            height=400
         )
-
-# 종합 분석 결과
-st.markdown("---")
-st.header("📈 종합 분석 결과 및 정책 제언")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("🔍 주요 발견사항")
-    st.markdown("""
-    **교통사고 분석:**
-    - 65세 이상 연령층의 사고 가해자 비율이 가장 높음 (1.00%)
-    - 30대가 가장 안전한 연령층 (0.54%)
-    - 50대 이후 연령 증가에 따른 위험도 상승 추세
+        st.plotly_chart(fig_ref, use_container_width=True)
     
-    **면허 자진반납 분석:**
-    - 2019년 이후 급격한 증가 (약 9배 증가)
-    - 65세 이상이 전체 자진반납의 99% 이상 차지
-    - 지역별 편차 존재 (서울, 경기 지역 높은 비율)
-    """)
-
-with col2:
-    st.subheader("📋 정책 제언")
-    st.markdown("""
-    **단기 정책:**
-    - 고령 운전자 대상 안전 교육 강화
-    - 면허 자진반납 인센티브 확대
-    - 지역별 맞춤형 홍보 전략 수립
+    # 상세 분석 결과
+    st.subheader("📊 인구 대비 분석 결과")
     
-    **장기 정책:**
-    - 고령 친화적 교통 인프라 구축
-    - 대중교통 접근성 개선
-    - 자율주행 기술 도입 준비
-    - 정기적 적성검사 강화
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info("""
+        **📍 주요 발견사항**
+        - 서울의 65세 이상 인구 대비 반납률이 더 높음
+        - 총인구 대비로도 서울이 약간 높은 수준
+        - 대체 교통수단 접근성이 반납률에 영향
+        """)
+    
+    with col2:
+        seoul_vs_other = (license_df.loc[0, '반납비율_65세이상'] / license_df.loc[1, '반납비율_65세이상'] - 1) * 100
+        st.warning(f"""
+        **🔍 서울 vs 기타지역**
+        - 서울이 기타지역보다 {seoul_vs_other:.1f}% 높은 반납률
+        - 인프라 차이가 행동에 미치는 영향 확인
+        - 지역별 맞춤 정책 필요성 시사
+        """)
+    
+    with col3:
+        total_elderly = license_df['65세이상인구'].sum()
+        total_surrender = license_df['반납건수'].sum()
+        national_avg = (total_surrender / total_elderly) * 100
+        st.success(f"""
+        **📈 전국 평균**
+        - 65세 이상 인구 대비: {national_avg:.2f}%
+        - 총 65세 이상: {total_elderly:,}명
+        - 정책 효과 모니터링 기준점
+        """)
+    
+    # 지역별 특성 분석
+    st.subheader("🌍 지역별 특성 및 시사점")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        #### 🏙️ 서울시 (높은 반납률)
+        - **65세 이상 반납률**: 1.67% (전국 대비 +23.7%)
+        - **주요 요인**:
+          - 🚇 우수한 대중교통 시스템
+          - 🏥 의료시설 접근성 양호
+          - 🛒 생활 인프라 집약적 배치
+        - **정책 방향**: 성공 모델 확산
+        """)
+    
+    with col2:
+        st.markdown("""
+        #### 🏞️ 기타 지역 (상대적 저반납률)
+        - **65세 이상 반납률**: 1.35% (전국 대비 -6.6%)
+        - **주요 과제**:
+          - 🚌 대중교통 접근성 부족
+          - 🏪 생활시설 거리 문제
+          - 🚗 차량 의존도 높음
+        - **정책 방향**: 대체 교통수단 확충 우선
+        """)
+
+# 연도별 추이 분석
+elif analysis_type == "연도별 추이":
+    st.header("📈 연도별 면허 자진반납 추이 분석")
+    
+    trend_df = load_trend_data()
+    
+    # 메인 추이 차트
+    fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # 반납 건수 라인
+    fig_trend.add_trace(
+        go.Scatter(
+            x=trend_df['연도'],
+            y=trend_df['반납건수'],
+            mode='lines+markers',
+            name='반납 건수',
+            line=dict(color='#ff6b6b', width=3),
+            marker=dict(size=8)
+        ),
+        secondary_y=False,
+    )
+    
+    # 증가율 바
+    fig_trend.add_trace(
+        go.Bar(
+            x=trend_df['연도'][1:],  # 첫 번째 연도 제외 (증가율 없음)
+            y=trend_df['증가율'][1:],
+            name='증가율',
+            opacity=0.6,
+            marker_color='#4834d4'
+        ),
+        secondary_y=True,
+    )
+    
+    fig_trend.update_xaxes(title_text="연도")
+    fig_trend.update_yaxes(title_text="반납 건수 (건)", secondary_y=False)
+    fig_trend.update_yaxes(title_text="증가율 (%)", secondary_y=True)
+    fig_trend.update_layout(
+        title="면허 자진반납 건수 및 증가율 추이",
+        height=500
+    )
+    
+    st.plotly_chart(fig_trend, use_container_width=True)
+    
+    # 주요 시점 분석
+    st.subheader("🔍 주요 변화 시점 분석")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="2019년 대폭발",
+            value="77,172건",
+            delta="+1,874.5%",
+            delta_color="normal"
+        )
+        st.caption("정책 변화 또는 사회적 인식 변화")
+    
+    with col2:
+        st.metric(
+            label="2021년 안정화",
+            value="83,644건",
+            delta="+8.4%",
+            delta_color="normal"
+        )
+        st.caption("증가세 둔화")
+    
+    with col3:
+        st.metric(
+            label="2023년 재가속",
+            value="121,559건",
+            delta="+45.3%",
+            delta_color="normal"
+        )
+        st.caption("고령화 가속화 영향")
+
+# 정책 제언
+elif analysis_type == "정책 제언":
+    st.header("🏛️ 정책 제언 및 개선 방안")
+    
+    # 주요 정책 제언
+    st.subheader("🎯 핵심 정책 제언")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["🚌 교통 인프라", "💰 인센티브", "🔧 기술 지원", "📊 모니터링"])
+    
+    with tab1:
+        st.markdown("""
+        ### 🚌 대체 교통수단 확충
+        
+        #### 즉시 실행 가능한 방안
+        - **마을버스 노선 확대**: 농촌 지역 접근성 향상
+        - **DRT(수요응답형 교통) 도입**: 맞춤형 교통 서비스
+        - **택시 바우처 확대**: 고령자 전용 교통비 지원
+        
+        #### 중장기 계획
+        - **지역 간 연계 교통망 구축**
+        - **무료 또는 저렴한 고령자 전용 교통수단**
+        - **의료기관-주거지 연결 셔틀 서비스**
+        """)
+    
+    with tab2:
+        st.markdown("""
+        ### 💰 반납 인센티브 제도
+        
+        #### 경제적 인센티브
+        - **교통비 지원**: 월 10-20만원 교통카드 지원
+        - **세금 감면**: 지방세, 재산세 일부 감면
+        - **의료비 할인**: 정기 건강검진 무료 제공
+        
+        #### 생활 편의 인센티브
+        - **생활용품 배송 서비스**
+        - **문화시설 이용 할인**
+        - **식료품 구매 배송비 지원**
+        """)
+    
+    with tab3:
+        st.markdown("""
+        ### 🔧 기술 지원 방안
+        
+        #### 스마트 모빌리티
+        - **모빌리티 앱 교육**: 고령자 대상 사용법 교육
+        - **음성 인식 호출 서비스**: 스마트폰 사용이 어려운 고령자 지원
+        - **AI 기반 최적 경로 안내**
+        
+        #### 안전 기술
+        - **긴급 상황 대응 시스템**
+        - **위치 추적 서비스** (동의 하에)
+        - **건강 모니터링 연동**
+        """)
+    
+    with tab4:
+        st.markdown("""
+        ### 📊 정책 효과 모니터링
+        
+        #### 데이터 수집 체계
+        - **면허 반납 후 이동 패턴 조사**
+        - **생활 만족도 정기 조사**
+        - **교통사고 감소 효과 측정**
+        
+        #### 성과 지표
+        - **대체 교통수단 이용률**
+        - **고령자 교통사고 감소율**
+        - **지역별 정책 만족도**
+        """)
+    
+    # 예산 및 우선순위
+    st.subheader("💡 정책 우선순위 및 예상 효과")
+    
+    policy_data = pd.DataFrame({
+        '정책': ['DRT 도입', '교통비 지원', '마을버스 확대', '택시 바우처', '기술 지원'],
+        '예상비용': [50, 200, 150, 100, 80],  # 억 원 단위
+        '예상효과': [85, 90, 70, 75, 60],  # 효과 점수
+        '실행난이도': [70, 30, 60, 40, 80]  # 난이도 점수
+    })
+    
+    fig_policy = px.scatter(
+        policy_data,
+        x='예상비용',
+        y='예상효과',
+        size='실행난이도',
+        color='정책',
+        title="정책별 비용-효과 분석",
+        labels={
+            '예상비용': '예상 비용 (억원)',
+            '예상효과': '예상 효과 점수',
+            '실행난이도': '실행 난이도'
+        }
+    )
+    fig_policy.update_layout(height=500)
+    st.plotly_chart(fig_policy, use_container_width=True)
+    
+    st.markdown("""
+    ### 📋 단계별 실행 계획
+    
+    #### 1단계 (즉시 실행, 6개월)
+    - 택시 바우처 시범 사업
+    - 기존 대중교통 고령자 할인 확대
+    
+    #### 2단계 (단기, 1-2년)
+    - DRT 시범 지역 운영
+    - 교통비 지원 제도 도입
+    
+    #### 3단계 (중장기, 3-5년)
+    - 전국 단위 통합 교통 시스템 구축
+    - 스마트 모빌리티 기술 적용 확대
     """)
-
-# 경고 및 참고사항
-st.warning("""
-⚠️ **데이터 해석 시 주의사항:**
-- 교통사고 데이터는 연령별 인구 대비 비율이며, 절대 건수가 아닙니다.
-- 면허 자진반납 증가는 제도 개선 및 사회적 인식 변화의 결과일 수 있습니다.
-- 지역별 차이는 인구 구조, 교통 환경 등 다양한 요인이 복합적으로 작용한 결과입니다.
-""")
-
-# 사이드바 정보
-st.sidebar.header("📊 대시보드 정보")
-st.sidebar.info(f"""
-**데이터 현황:**
-- 교통사고: 연령별 가해자 비율 데이터
-- 면허 자진반납: 경찰청 공식 통계 (2015-2023)
-- 분석 기준: 2023년 최신 데이터
-
-**포함 지역:** {len(license_df)}개 시도
-**분석 기간:** 2015-2023년 (9년간)
-""")
-
-st.sidebar.header("🛠️ 주요 기능")
-st.sidebar.success("""
-✅ 실제 CSV 데이터 활용
-✅ 연령별 교통사고 위험도 분석
-✅ 지역별 자진반납 현황 비교
-✅ 연도별 추이 분석
-✅ 상세 데이터 테이블 제공
-✅ 정책 제언 포함
-""")
 
 # 푸터
 st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: gray; font-size: 12px;'>
-    🚗 교통안전 종합 분석 대시보드 v3.0 | 
-    경찰청 공식 통계 기반 분석 도구<br>
-    데이터 출처: 경찰청 교통사고 통계, 고령운전자 자진반납 현황
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style='text-align: center; color: gray;'>
+    <p>📊 고령 운전자 교통안전 분석 대시보드 | 데이터 기반 정책 수립 지원</p>
+</div>
+""", unsafe_allow_html=True)
